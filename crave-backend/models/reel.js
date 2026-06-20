@@ -1,12 +1,18 @@
-// models/Reel.js
 const mongoose = require('mongoose');
 
 const reelSchema = new mongoose.Schema({
+  creator: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  videoUrl: {
+    type: String,
+    required: true
+  },
   restaurant: String,
   dishName: String,
   price: String,
-  videoUrl: String,
-  // The crucial GeoJSON formatting for MongoDB
   location: {
     type: {
       type: String,
@@ -14,13 +20,16 @@ const reelSchema = new mongoose.Schema({
       required: true
     },
     coordinates: {
-      type: [Number], // [longitude, latitude] - MUST be in this order!
+      type: [Number], // [longitude, latitude]
       required: true
     }
-  }
-});
+  },
+  // Denormalized counters to save DB queries on the main feed
+  likeCount: { type: Number, default: 0 },
+  commentCount: { type: Number, default: 0 }
+}, { timestamps: true });
 
-// This index is what makes the $near query hyper-fast
+// The geospatial index for the hyper-local feed
 reelSchema.index({ location: '2dsphere' });
 
 module.exports = mongoose.model('Reel', reelSchema);
