@@ -1,6 +1,5 @@
 // seed.js
 require('dotenv').config();
-console.log("MONGO_URI =", process.env.MONGO_URI);
 const mongoose = require('mongoose');
 const Reel = require('./models/Reel');
 
@@ -63,8 +62,6 @@ const MOCK_REELS = [
 async function seedDatabase() {
   try {
     console.log("Connecting to MongoDB...");
-    console.log(process.env.MONGO_URI);
-console.log(process.cwd());
     await mongoose.connect(process.env.MONGO_URI);
     console.log("Connected successfully.");
 
