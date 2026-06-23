@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { Heart, ShoppingBag, MessageCircle, MapPin } from 'lucide-react';
 
 // --- TYPES ---
@@ -12,42 +12,53 @@ interface Reel {
   lng?: number;
 }
 
+const demoReels: Reel[] = [
+  {
+    id: 'demo-1',
+    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    restaurant: 'Demo Kitchen',
+    dishName: 'Connect the feed API to replace this demo reel',
+    price: '₹299',
+  },
+];
+
 // --- MAIN FEED COMPONENT ---
 export default function ReelFeed() {
-  const [reels, setReels] = useState<Reel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [locationError, setLocationError] = useState(false);
+  const canLocate = 'geolocation' in navigator;
+  const [reels, setReels] = useState<Reel[]>(canLocate ? [] : demoReels);
+  const [loading, setLoading] = useState(canLocate);
 
   useEffect(() => {
+    if (!canLocate) return;
+
     // 1. Grab user location
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
+    navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           
           // 2. Fetch hyper-local food from backend
           try {
             const response = await fetch(`http://localhost:3000/api/feed?lat=${latitude}&lng=${longitude}`);
-            const data = await response.json();
-            setReels(data);
-            setLoading(false);
+            if (!response.ok) {
+              throw new Error(`Feed request failed with status ${response.status}`);
+            }
+
+            const data: unknown = await response.json();
+            setReels(Array.isArray(data) && data.length > 0 ? data : demoReels);
           } catch (error) {
             console.error("Backend is asleep or unreachable", error);
-            // Fallback for development if backend isn't running yet
-            setLoading(false); 
+            setReels(demoReels);
+          } finally {
+            setLoading(false);
           }
         },
         (error) => {
           console.error("User denied location", error);
-          setLocationError(true);
+          setReels(demoReels);
           setLoading(false);
         }
-      );
-    } else {
-      setLocationError(true);
-      setLoading(false);
-    }
-  }, []);
+    );
+  }, [canLocate]);
 
   if (loading) {
     return (
@@ -57,16 +68,6 @@ export default function ReelFeed() {
     );
   }
   
-  if (locationError) {
-    return (
-      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center gap-4 p-6 text-center">
-        <MapPin className="w-12 h-12 text-red-500" />
-        <h2 className="text-xl font-bold">Location Required</h2>
-        <p className="text-zinc-400">We need your location to show food that can actually reach you in under 45 minutes.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen w-full bg-black overflow-y-scroll snap-y snap-mandatory scrollbar-none">
       {reels.length === 0 ? (
@@ -84,6 +85,7 @@ export default function ReelFeed() {
 function ReelItem({ reel }: { reel: Reel }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoError, setVideoError] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   // Handle auto-play and pause when scrolling
@@ -91,8 +93,9 @@ function ReelItem({ reel }: { reel: Reel }) {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          videoRef.current?.play().catch(() => {});
-          setIsPlaying(true);
+          videoRef.current?.play()
+            .then(() => setIsPlaying(true))
+            .catch(() => setIsPlaying(false));
         } else {
           videoRef.current?.pause();
           setIsPlaying(false);
@@ -115,14 +118,26 @@ function ReelItem({ reel }: { reel: Reel }) {
         src={reel.videoUrl}
         loop
         playsInline
+        preload="metadata"
         muted // Muted by default for browser autoplay policies
         className="h-full w-full object-cover cursor-pointer"
+        onCanPlay={() => setVideoError(false)}
+        onError={() => {
+          setVideoError(true);
+          setIsPlaying(false);
+        }}
         onClick={() => {
           if (isPlaying) videoRef.current?.pause();
           else videoRef.current?.play();
           setIsPlaying(!isPlaying);
         }}
       />
+
+      {videoError && (
+        <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
+          Video unavailable
+        </div>
+      )}
 
       {/* 2. Social Interaction Bar (Right Side) */}
       <div className="absolute right-4 bottom-32 flex flex-col gap-6 text-white items-center z-10">

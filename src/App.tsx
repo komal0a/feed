@@ -1,4 +1,3 @@
-import React from 'react';
 import ReelFeed from './components/ReelFeed';
 import DiscoveryMap from './components/DiscoveryMap';
 
