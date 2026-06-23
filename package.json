@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "npm --prefix crave-backend start",
+    "seed:api": "npm --prefix crave-backend run seed",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

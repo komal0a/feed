@@ -1,5 +1,4 @@
-import React from 'react';
-import { MapPin, Navigation, Search } from 'lucide-react';
+import { Navigation, Search } from 'lucide-react';
 
 export default function DiscoveryMap() {
   return (

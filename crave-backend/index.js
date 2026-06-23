@@ -2,9 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const Reel = require('./models/Reel');
+const Reel = require('./models/reel');
 const cookieParser = require('cookie-parser');
-const authRoutes = require('./routes/auth');
+const authRoutes = require('./Routes/Auth');
 
 const app = express();
 app.use(cors());
@@ -27,7 +27,7 @@ app.get('/api/feed', async (req, res) => {
     }
 
     // The Magic Geospatial Query
-    const localFood = await Reel.find({
+    let localFood = await Reel.find({
       location: {
         $near: {
           $geometry: {
@@ -38,6 +38,11 @@ app.get('/api/feed', async (req, res) => {
         }
       }
     }).limit(10); // Only send 10 videos at a time to save bandwidth
+
+    // Keep development usable when the database has no reels near the user.
+    if (localFood.length === 0) {
+      localFood = await Reel.find({}).sort({ createdAt: -1 }).limit(10);
+    }
 
     // Format data to match our React frontend expectations
     const formattedData = localFood.map(reel => ({
