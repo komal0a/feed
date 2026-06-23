@@ -1,64 +1,69 @@
-import { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Heart, ShoppingBag, MessageCircle, MapPin } from 'lucide-react';
+import AuthModal from './AuthModal';
 
 // --- TYPES ---
+interface User {
+  id: string;
+  username: string;
+  email: string;
+}
+
 interface Reel {
   id: string;
   videoUrl: string;
   restaurant: string;
   dishName: string;
   price: string;
-  lat?: number;
-  lng?: number;
+  creator: string;
+  likeCount: number;
+  commentCount: number;
 }
-
-const demoReels: Reel[] = [
-  {
-    id: 'demo-1',
-    videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-    restaurant: 'Demo Kitchen',
-    dishName: 'Connect the feed API to replace this demo reel',
-    price: '₹299',
-  },
-];
 
 // --- MAIN FEED COMPONENT ---
 export default function ReelFeed() {
-  const canLocate = 'geolocation' in navigator;
-  const [reels, setReels] = useState<Reel[]>(canLocate ? [] : demoReels);
-  const [loading, setLoading] = useState(canLocate);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [locationError, setLocationError] = useState(false);
+  
+  // Auth State
+  const [showAuth, setShowAuth] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
-    if (!canLocate) return;
-
     // 1. Grab user location
-    navigator.geolocation.getCurrentPosition(
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           
-          // 2. Fetch hyper-local food from backend
+          // 2. Fetch hyper-local food from live Express backend
           try {
-            const response = await fetch(`http://localhost:3000/api/feed?lat=${latitude}&lng=${longitude}`);
-            if (!response.ok) {
-              throw new Error(`Feed request failed with status ${response.status}`);
+            const response = await fetch(`http://localhost:3000/api/feed?lat=${latitude}&lng=${longitude}`, {
+              credentials: 'include' // Ensures cookies are sent if user is logged in
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+              setReels(data);
             }
-
-            const data: unknown = await response.json();
-            setReels(Array.isArray(data) && data.length > 0 ? data : demoReels);
+            setLoading(false);
           } catch (error) {
             console.error("Backend is asleep or unreachable", error);
-            setReels(demoReels);
-          } finally {
-            setLoading(false);
+            setLoading(false); 
           }
         },
         (error) => {
           console.error("User denied location", error);
-          setReels(demoReels);
+          setLocationError(true);
           setLoading(false);
         }
-    );
-  }, [canLocate]);
+      );
+    } else {
+      setLocationError(true);
+      setLoading(false);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -68,46 +73,109 @@ export default function ReelFeed() {
     );
   }
   
+  if (locationError) {
+    return (
+      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center gap-4 p-6 text-center">
+        <MapPin className="w-12 h-12 text-red-500" />
+        <h2 className="text-xl font-bold">Location Required</h2>
+        <p className="text-zinc-400">We need your location to show food that can actually reach you.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen w-full bg-black overflow-y-scroll snap-y snap-mandatory scrollbar-none">
+    <div className="h-screen w-full bg-black overflow-y-scroll snap-y snap-mandatory scrollbar-none relative">
       {reels.length === 0 ? (
         <div className="h-full flex items-center justify-center text-zinc-500">No reels found in your area.</div>
       ) : (
         reels.map((reel) => (
-          <ReelItem key={reel.id} reel={reel} />
+          <ReelItem 
+            key={reel.id} 
+            reel={reel} 
+            currentUser={currentUser} 
+            setShowAuth={setShowAuth} 
+          />
         ))
+      )}
+
+      {/* Global Auth Modal */}
+      {showAuth && (
+        <AuthModal 
+          onClose={() => setShowAuth(false)} 
+          onSuccess={(user) => {
+            setCurrentUser(user);
+          }} 
+        />
       )}
     </div>
   );
 }
 
 // --- INDIVIDUAL REEL COMPONENT ---
-function ReelItem({ reel }: { reel: Reel }) {
+interface ReelItemProps {
+  reel: Reel;
+  currentUser: User | null;
+  setShowAuth: (show: boolean) => void;
+}
+
+function ReelItem({ reel, currentUser, setShowAuth }: ReelItemProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [videoError, setVideoError] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  
+  // Engagement State
+  const [isLiked, setIsLiked] = useState(false); 
+  const [likeCount, setLikeCount] = useState(reel.likeCount || 0);
 
   // Handle auto-play and pause when scrolling
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          videoRef.current?.play()
-            .then(() => setIsPlaying(true))
-            .catch(() => setIsPlaying(false));
+          videoRef.current?.play().catch(() => {});
+          setIsPlaying(true);
         } else {
           videoRef.current?.pause();
           setIsPlaying(false);
           setIsCheckoutOpen(false); // Close drawer if they scroll away
         }
       },
-      { threshold: 0.6 } // Triggers when 60% of the video is visible
+      { threshold: 0.6 }
     );
 
     if (videoRef.current) observer.observe(videoRef.current);
     return () => observer.disconnect();
   }, []);
+
+  const handleLike = async () => {
+    if (!currentUser) {
+      setShowAuth(true);
+      return;
+    }
+
+    // Optimistic UI update
+    const previousLiked = isLiked;
+    const previousCount = likeCount;
+    setIsLiked(!isLiked);
+    setLikeCount(isLiked ? likeCount - 1 : likeCount + 1);
+
+    try {
+      const response = await fetch(`http://localhost:3000/reels/${reel.id}/like`, {
+        method: 'POST',
+        credentials: 'include' // Must send JWT cookie!
+      });
+
+      if (!response.ok) throw new Error('Failed to toggle like');
+      
+      const data = await response.json();
+      setIsLiked(data.isLiked); // Sync with absolute truth from backend
+    } catch (error) {
+      console.error(error);
+      // Revert if API fails
+      setIsLiked(previousLiked);
+      setLikeCount(previousCount);
+    }
+  };
 
   return (
     <div className="h-screen w-full snap-start relative flex items-center justify-center bg-black overflow-hidden">
@@ -118,14 +186,8 @@ function ReelItem({ reel }: { reel: Reel }) {
         src={reel.videoUrl}
         loop
         playsInline
-        preload="metadata"
         muted // Muted by default for browser autoplay policies
         className="h-full w-full object-cover cursor-pointer"
-        onCanPlay={() => setVideoError(false)}
-        onError={() => {
-          setVideoError(true);
-          setIsPlaying(false);
-        }}
         onClick={() => {
           if (isPlaying) videoRef.current?.pause();
           else videoRef.current?.play();
@@ -133,25 +195,28 @@ function ReelItem({ reel }: { reel: Reel }) {
         }}
       />
 
-      {videoError && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
-          Video unavailable
-        </div>
-      )}
-
       {/* 2. Social Interaction Bar (Right Side) */}
       <div className="absolute right-4 bottom-32 flex flex-col gap-6 text-white items-center z-10">
-        <button className="p-3 bg-black/40 rounded-full backdrop-blur-md active:scale-90 transition-transform">
-          <Heart className="w-6 h-6" />
+        <button 
+          onClick={handleLike}
+          className="p-3 bg-black/40 rounded-full backdrop-blur-md active:scale-90 transition-transform flex flex-col items-center gap-1"
+        >
+          <Heart className={`w-6 h-6 transition-colors ${isLiked ? 'fill-red-500 text-red-500' : 'text-white'}`} />
+          <span className="text-xs font-semibold">{likeCount}</span>
         </button>
-        <button className="p-3 bg-black/40 rounded-full backdrop-blur-md active:scale-90 transition-transform">
-          <MessageCircle className="w-6 h-6" />
+        <button 
+          onClick={() => currentUser ? alert('Comments coming next!') : setShowAuth(true)}
+          className="p-3 bg-black/40 rounded-full backdrop-blur-md active:scale-90 transition-transform flex flex-col items-center gap-1"
+        >
+          <MessageCircle className="w-6 h-6 text-white" />
+          <span className="text-xs font-semibold">{reel.commentCount || 0}</span>
         </button>
       </div>
 
       {/* 3. Info & Trigger Overlay (Bottom) */}
       <div className="absolute bottom-0 left-0 right-0 p-6 pb-8 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white flex flex-col gap-4 z-10 pointer-events-none">
         <div className="pointer-events-auto">
+          <p className="text-sm text-emerald-400 font-bold mb-1">@{reel.creator}</p>
           <h3 className="font-bold text-2xl tracking-tight">{reel.restaurant}</h3>
           <p className="text-sm text-zinc-300 font-medium">{reel.dishName}</p>
         </div>
@@ -195,7 +260,7 @@ function ReelItem({ reel }: { reel: Reel }) {
 
             {/* Final Action Button */}
             <button 
-              onClick={() => alert('Routing to Stripe/Payment Gateway...')}
+              onClick={() => currentUser ? alert('Routing to Payment Gateway...') : setShowAuth(true)}
               className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-lg py-4 rounded-2xl transition-colors shadow-[0_0_20px_rgba(16,185,129,0.3)]"
             >
               Pay Now

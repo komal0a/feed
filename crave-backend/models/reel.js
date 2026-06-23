@@ -32,4 +32,4 @@ const reelSchema = new mongoose.Schema({
 // The geospatial index for the hyper-local feed
 reelSchema.index({ location: '2dsphere' });
 
-module.exports = mongoose.model('Reel', reelSchema);
+module.exports = mongoose.models.Reel || mongoose.model('Reel', reelSchema);
